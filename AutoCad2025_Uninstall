@@ -1,0 +1,545 @@
+# ============================================================
+# NinjaOne Automation - Uninstall Autodesk AutoCAD 2025
+# Protects AutoCAD 2027
+# ============================================================
+
+$ErrorActionPreference = "Stop"
+
+Write-Host ""
+Write-Host "============================================================"
+Write-Host " Autodesk AutoCAD 2025 Removal"
+Write-Host "============================================================"
+Write-Host ""
+
+# ------------------------------------------------------------
+# Registry locations
+# ------------------------------------------------------------
+
+$RegistryPaths = @(
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+)
+
+function Get-InstalledAutodeskSoftware 
+{
+
+    $Software = @()
+
+    foreach ($Path in $RegistryPaths) 
+    {
+
+        $Items = Get-ItemProperty -Path $Path -ErrorAction SilentlyContinue
+
+        foreach ($Item in $Items)
+        {
+
+            if (
+                $null -ne $Item.DisplayName -and
+                $Item.DisplayName -ne "" -and
+                $Item.Publisher -like "*Autodesk*"
+            ) 
+            {
+                $Software += $Item
+            }
+        }
+    }
+
+    return $Software
+}
+
+# ------------------------------------------------------------
+# Scan Autodesk software
+# ------------------------------------------------------------
+
+Write-Host "[INFO] Scanning installed Autodesk products..."
+
+$InstalledSoftware = Get-InstalledAutodeskSoftware
+
+Write-Host "[INFO] Found $($InstalledSoftware.Count) Autodesk registry entries."
+Write-Host ""
+
+# ------------------------------------------------------------
+# Locate AutoCAD 2025 and 2027
+# ------------------------------------------------------------
+
+$AutoCAD2025 = @()
+$AutoCAD2027 = @()
+
+foreach ($App in $InstalledSoftware) 
+{
+
+    if ($App.DisplayName -match "^Autodesk AutoCAD 2025($| -)") 
+    {
+        $AutoCAD2025 += $App
+    }
+
+    if ($App.DisplayName -match "^Autodesk AutoCAD 2027($| -)")
+    {
+        $AutoCAD2027 += $App
+    }
+}
+
+# ------------------------------------------------------------
+# Show protected AutoCAD 2027
+# ------------------------------------------------------------
+
+if ($AutoCAD2027.Count -gt 0) 
+{
+
+    Write-Host "[PROTECTED] AutoCAD 2027 detected."
+
+    foreach ($App in $AutoCAD2027) 
+    {
+        Write-Host "            Name:      $($App.DisplayName)"
+        Write-Host "            Version:   $($App.DisplayVersion)"
+        Write-Host "            Publisher: $($App.Publisher)"
+    }
+
+    Write-Host ""
+    Write-Host "[PROTECTED] AutoCAD 2027 will NOT be modified."
+}
+else 
+{
+    Write-Host "[INFO] AutoCAD 2027 was not detected."
+}
+
+Write-Host ""
+
+# ------------------------------------------------------------
+# Check AutoCAD 2025
+# ------------------------------------------------------------
+
+if ($AutoCAD2025.Count -eq 0) 
+{
+
+    Write-Host "[INFO] AutoCAD 2025 is not installed."
+    Write-Host "[INFO] No changes were made."
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host " RESULT: NOTHING TO REMOVE"
+    Write-Host "============================================================"
+
+    exit 0
+}
+
+# ------------------------------------------------------------
+# Display targets
+# ------------------------------------------------------------
+
+Write-Host "[TARGET] AutoCAD 2025 detected."
+
+foreach ($App in $AutoCAD2025) 
+{
+
+    Write-Host "         Name:      $($App.DisplayName)"
+    Write-Host "         Version:   $($App.DisplayVersion)"
+    Write-Host "         Publisher: $($App.Publisher)"
+}
+
+Write-Host ""
+
+# ------------------------------------------------------------
+# Safety validation
+# ------------------------------------------------------------
+
+foreach ($App in $AutoCAD2025) 
+{
+
+    if ($App.Publisher -notlike "*Autodesk*") 
+    {
+        Write-Host "[SAFETY ABORT] Publisher is not Autodesk."
+        exit 2
+    }
+
+    if ($App.DisplayName -notmatch "2025") 
+    {
+        Write-Host "[SAFETY ABORT] Target does not contain 2025."
+        Write-Host "Detected: $($App.DisplayName)"
+        exit 2
+    }
+
+    if ($App.DisplayName -match "2027") 
+    {
+        Write-Host "[SAFETY ABORT] AutoCAD 2027 was selected."
+        Write-Host "No changes were made."
+        exit 2
+    }
+}
+
+Write-Host "[SAFETY] Target validation passed."
+Write-Host "[SAFETY] Only AutoCAD 2025 will be processed."
+Write-Host ""
+
+# ------------------------------------------------------------
+# Stop AutoCAD
+# ------------------------------------------------------------
+
+$AcadProcess = Get-Process -Name "acad" -ErrorAction SilentlyContinue
+
+if ($AcadProcess) 
+{
+
+    Write-Host "[INFO] An AutoCAD process is currently running."
+    Write-Host "[INFO] Closing acad.exe..."
+
+    Stop-Process -Name "acad" -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 5
+
+}
+else 
+{
+
+    Write-Host "[INFO] AutoCAD is not currently running."
+}
+
+Write-Host ""
+
+# ------------------------------------------------------------
+# Uninstall each identified AutoCAD 2025 entry
+# ------------------------------------------------------------
+
+foreach ($App in $AutoCAD2025) 
+{
+
+    Write-Host "------------------------------------------------------------"
+    Write-Host "[UNINSTALL] $($App.DisplayName)"
+    Write-Host "------------------------------------------------------------"
+
+    $UninstallCommand = $null
+
+    if 
+    (
+        $null -ne $App.QuietUninstallString -and
+        $App.QuietUninstallString -ne ""
+    ) 
+    {
+
+        $UninstallCommand = $App.QuietUninstallString
+        Write-Host "[INFO] Using QuietUninstallString."
+
+    }
+    elseif 
+    (
+        $null -ne $App.UninstallString -and
+        $App.UninstallString -ne ""
+    ) 
+    {
+
+        $UninstallCommand = $App.UninstallString
+        Write-Host "[INFO] QuietUninstallString unavailable."
+        Write-Host "[INFO] Using UninstallString."
+
+    }
+    else 
+    {
+
+        Write-Host "[ERROR] No uninstall command exists for:"
+        Write-Host $App.DisplayName
+
+        exit 2
+    }
+
+    # --------------------------------------------------------
+    # Safety check command
+    # --------------------------------------------------------
+
+    if ($UninstallCommand -match "2027") 
+    {
+
+        Write-Host "[SAFETY ABORT]"
+        Write-Host "Uninstall command contains a reference to 2027."
+        Write-Host "No uninstall was performed."
+
+        exit 2
+    }
+
+    Write-Host "[INFO] Product-specific uninstall command found."
+
+    # --------------------------------------------------------
+    # Parse command
+    # Supports both quoted and unquoted Autodesk paths
+    # --------------------------------------------------------
+    
+    $Executable = $null
+    $Arguments = ""
+    
+    # METHOD 1:
+    # Properly quoted executable path
+    #
+    # Example:
+    # "C:\Program Files\Autodesk\AdODIS\V1\Installer.exe" -i uninstall ...
+    #
+    if ($UninstallCommand -match '^"([^"]+\.exe)"\s*(.*)$') 
+    {
+    
+        $Executable = $Matches[1]
+        $Arguments  = $Matches[2]
+    
+        Write-Host "[INFO] Detected quoted uninstall executable."
+    
+    }
+    
+    # METHOD 2:
+    # Unquoted executable path containing spaces
+    #
+    # Example:
+    # C:\Program Files\Autodesk\AdODIS\V1\Installer.exe -i uninstall ...
+    #
+    elseif ($UninstallCommand -match '^(.+?\.exe)\s+(.*)$') 
+    {
+    
+        $Executable = $Matches[1]
+        $Arguments  = $Matches[2]
+    
+        Write-Host "[INFO] Detected unquoted uninstall executable."
+    
+    }
+    
+    # METHOD 3:
+    # Executable only, with no arguments
+    #
+    elseif ($UninstallCommand -match '^"?(.+?\.exe)"?$') 
+    {
+    
+        $Executable = $Matches[1]
+        $Arguments  = ""
+    
+        Write-Host "[INFO] Detected uninstall executable with no arguments."
+    
+    }
+    
+    else 
+    {
+    
+        Write-Host "[ERROR] Unable to parse uninstall command."
+        Write-Host "[ERROR] Registered command format was not recognized."
+        exit 2
+    }
+    
+    # Remove accidental surrounding whitespace
+    $Executable = $Executable.Trim()
+    $Arguments  = $Arguments.Trim()
+    
+    Write-Host "[INFO] Parsed uninstall executable:"
+    Write-Host "       $Executable"
+    
+    if ($Arguments) 
+    {
+        Write-Host "[INFO] Uninstall arguments were detected."
+    }
+
+    Write-Host "[INFO] Uninstaller:"
+    Write-Host "       $Executable"
+
+    # --------------------------------------------------------
+    # Verify executable
+    # --------------------------------------------------------
+
+    if (-not (Test-Path -LiteralPath $Executable)) 
+    {
+
+        Write-Host "[ERROR] Uninstaller executable does not exist:"
+        Write-Host $Executable
+
+        exit 2
+    }
+
+    # --------------------------------------------------------
+    # Detect Autodesk ODIS
+    # --------------------------------------------------------
+
+    if ($Executable -match "Installer\.exe$") 
+    {
+
+        Write-Host "[INFO] Autodesk ODIS installer detected."
+
+        if ($Arguments -notmatch '(^|\s)-q(\s|$)') 
+        {
+
+            Write-Host "[INFO] Adding Autodesk quiet parameter (-q)."
+
+            $Arguments = "-q $Arguments"
+        }
+    }
+
+    # --------------------------------------------------------
+    # Execute
+    # --------------------------------------------------------
+
+    Write-Host "[INFO] Starting uninstall..."
+    Write-Host "[INFO] NinjaOne will wait for Autodesk to finish."
+    Write-Host ""
+
+    try 
+    {
+
+        $UninstallProcess = Start-Process `
+            -FilePath $Executable `
+            -ArgumentList $Arguments `
+            -Wait `
+            -PassThru
+
+        $ExitCode = $UninstallProcess.ExitCode
+
+        Write-Host ""
+        Write-Host "[INFO] Uninstaller finished."
+        Write-Host "[INFO] Exit code: $ExitCode"
+
+        if ($ExitCode -eq 0) 
+        {
+
+            Write-Host "[INFO] Autodesk reported successful completion."
+
+        }
+        elseif ($ExitCode -eq 3010)
+        {
+
+            Write-Host "[INFO] Autodesk reported success; reboot required."
+
+        }
+        elseif ($ExitCode -eq 1641)
+        {
+
+            Write-Host "[INFO] Autodesk reported success; reboot initiated."
+
+        }
+        else 
+        {
+
+            Write-Host "[WARNING] Autodesk returned unexpected exit code $ExitCode."
+        }
+
+    }
+    catch 
+    {
+
+        Write-Host "[ERROR] Exception while running Autodesk uninstaller:"
+        Write-Host $_.Exception.Message
+
+        exit 1
+    }
+}
+
+# ------------------------------------------------------------
+# Wait for registry updates
+# ------------------------------------------------------------
+
+Write-Host ""
+Write-Host "[INFO] Waiting 15 seconds for Autodesk/Windows to update..."
+Start-Sleep -Seconds 15
+
+# ------------------------------------------------------------
+# Rescan
+# ------------------------------------------------------------
+
+Write-Host "[INFO] Rescanning installed Autodesk products..."
+Write-Host ""
+
+$InstalledAfter = Get-InstalledAutodeskSoftware
+
+$Remaining2025 = @()
+$Remaining2027 = @()
+
+foreach ($App in $InstalledAfter) 
+{
+
+    if ($App.DisplayName -match "^Autodesk AutoCAD 2025($| -)") 
+    {
+        $Remaining2025 += $App
+    }
+
+    if ($App.DisplayName -match "^Autodesk AutoCAD 2027($| -)") 
+    {
+        $Remaining2027 += $App
+    }
+}
+
+# ------------------------------------------------------------
+# Results
+# ------------------------------------------------------------
+
+Write-Host "============================================================"
+Write-Host " Verification"
+Write-Host "============================================================"
+Write-Host ""
+
+if ($Remaining2025.Count -gt 0) 
+{
+
+    Write-Host "[FAILED] AutoCAD 2025 is still registered."
+
+    foreach ($App in $Remaining2025) 
+    {
+        Write-Host "         $($App.DisplayName)"
+    }
+
+    if ($AutoCAD2027.Count -gt 0) 
+    {
+
+        if ($Remaining2027.Count -gt 0) 
+        {
+            Write-Host "[PROTECTED] AutoCAD 2027 is still installed."
+        }
+        else 
+        {
+            Write-Host "[CRITICAL] AutoCAD 2027 is no longer detected."
+        }
+    }
+
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host " RESULT: FAILED"
+    Write-Host " AutoCAD 2025 remains registered."
+    Write-Host "============================================================"
+
+    exit 1
+}
+
+Write-Host "[SUCCESS] AutoCAD 2025 is no longer registered."
+
+# ------------------------------------------------------------
+# Verify 2027 specifically
+# ------------------------------------------------------------
+
+if ($AutoCAD2027.Count -gt 0) 
+{
+
+    if ($Remaining2027.Count -gt 0) 
+    {
+
+        Write-Host "[PROTECTED] AutoCAD 2027 is still installed."
+
+        foreach ($App in $Remaining2027) 
+        {
+            Write-Host "            $($App.DisplayName)"
+        }
+
+    }
+    else 
+    {
+
+        Write-Host ""
+        Write-Host "[CRITICAL] AutoCAD 2027 existed before the uninstall"
+        Write-Host "           but is no longer registered."
+        Write-Host ""
+        Write-Host "Manual investigation is required."
+
+        exit 1
+    }
+}
+
+Write-Host ""
+Write-Host "============================================================"
+Write-Host " RESULT: SUCCESS"
+Write-Host ""
+Write-Host " AutoCAD 2025: REMOVED"
+
+if ($AutoCAD2027.Count -gt 0) 
+{
+    Write-Host " AutoCAD 2027: PROTECTED / STILL INSTALLED"
+}
+
+Write-Host "============================================================"
+Write-Host ""
+
+exit 0
